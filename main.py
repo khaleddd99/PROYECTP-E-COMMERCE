@@ -1,13 +1,17 @@
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Optional, Tuple
-import functools 
-import datetime 
+from typing import List, Optional
+from abc import ABC, abstractmethod # Necesario para las INTERFACES
+import datetime
 
+# ==========================================
+# 1. MODELOS DE DATOS (Entidades)
+# ==========================================
+# Seguimos usando Pydantic para validar los datos que entran y salen.
 
 class Producto(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True) # Inmutable
     id: int
     nombre: str
     precio: float
@@ -19,272 +23,205 @@ class ItemCarrito(BaseModel):
     cantidad: int
 
 class Carrito(BaseModel):
-    model_config = ConfigDict(frozen=True)
     id: int
     items: List[ItemCarrito] = Field(default_factory=list)
     total: float = 0.0
 
-class ItemPedido(BaseModel):
-    model_config = ConfigDict(frozen=True)
-    producto_id: int
-    cantidad: int
-    precio_congelado: float 
-
 class Pedido(BaseModel):
-    model_config = ConfigDict(frozen=True)
     id: int
-    items: List[ItemPedido]
+    items: List[ItemCarrito]
     total_pedido: float
     fecha: str
-    estado: str 
+    estado: str
 
+# ==========================================
+# 2. DEFINICIÓN DE INTERFACES (Abstracción)
+# ==========================================
+# Cumple con: "Implementar interfaces"
+# Define QUÉ debe hacer el sistema, sin decir CÓMO.
 
+class IEcommerce(ABC):
+    
+    @abstractmethod
+    def obtener_productos(self) -> List[Producto]:
+        pass
 
-db_productos: List[Producto] = [
-    Producto(id=1, nombre="Laptop Gamer", precio=1200.00, stock=10),
-    Producto(id=2, nombre="Teclado Mecánico", precio=150.00, stock=25),
-    Producto(id=3, nombre="Mouse Óptico", precio=45.50, stock=50),
-]
+    @abstractmethod
+    def agregar_producto(self, producto: Producto) -> Producto:
+        pass
 
-db_carritos: List[Carrito] = [
-    Carrito(id=1) 
-]
+    @abstractmethod
+    def gestionar_carrito(self, carrito_id: int, item: ItemCarrito) -> Carrito:
+        pass
 
-db_pedidos: List[Pedido] = []
+    @abstractmethod
+    def realizar_checkout(self, carrito_id: int) -> Pedido:
+        pass
 
+# ==========================================
+# 3. CLASE DEL SISTEMA (Encapsulación)
+# ==========================================
+# Cumple con: "Implementar encapsulación" y "Manejo de errores"
+# Aquí está la lógica real, protegiendo los datos con guiones bajos (_variable).
 
-app = FastAPI(
-    title="API de Gestión de E-commerce",
-    description="Proyecto de Programación Funcional"
-)
-
-
-
-def fn_buscar_producto(lista_productos: List[Producto], id_producto: int) -> Optional[Producto]:
-    encontrados = list(filter(lambda p: p.id == id_producto, lista_productos))
-    return encontrados[0] if encontrados else None
-
-def fn_actualizar_stock(lista_productos: List[Producto], id_producto: int, cantidad_a_restar: int) -> List[Producto]:
-    return [
-        p
-        if p.id != id_producto
-        else p.model_copy(update={'stock': p.stock - cantidad_a_restar})
-        for p in lista_productos
-    ]
-
-def fn_agregar_producto(lista_productos: List[Producto], producto_nuevo: Producto) -> List[Producto]:
-    return lista_productos + [producto_nuevo]
-
-
-
-def fn_buscar_carrito(lista_carritos: List[Carrito], carrito_id: int) -> Optional[Carrito]:
-    encontrados = list(filter(lambda c: c.id == carrito_id, lista_carritos))
-    return encontrados[0] if encontrados else None
-
-def fn_recalcular_total(carrito: Carrito, lista_productos: List[Producto]) -> float:
-    def obtener_precio(item: ItemCarrito) -> float:
-        producto = fn_buscar_producto(lista_productos, item.producto_id)
-        return (producto.precio * item.cantidad) if producto else 0.0
-    subtotales = map(obtener_precio, carrito.items)
-    total = sum(subtotales)
-    return round(total, 2) 
-
-def fn_agregar_item_al_carrito(
-    carrito: Carrito, 
-    item_nuevo: ItemCarrito, 
-    lista_productos: List[Producto]
-) -> Carrito:
-    item_existente = next(
-        (item for item in carrito.items if item.producto_id == item_nuevo.producto_id), 
-        None
-    )
-    if item_existente:
-        nueva_lista_items = [
-            item.model_copy(update={'cantidad': item.cantidad + item_nuevo.cantidad})
-            if item.producto_id == item_nuevo.producto_id
-            else item
-            for item in carrito.items
+class SistemaEcommerce(IEcommerce):
+    def __init__(self):
+        # ENCAPSULACIÓN: Usamos variables "privadas" (con _) para que
+        # nadie las modifique directamente desde fuera de la clase.
+        self._db_productos: List[Producto] = [
+            Producto(id=1, nombre="Laptop Gamer", precio=1200.00, stock=10),
+            Producto(id=2, nombre="Teclado Mecánico", precio=150.00, stock=25),
+            Producto(id=3, nombre="Mouse Óptico", precio=45.50, stock=50),
         ]
-    else:
-        nueva_lista_items = carrito.items + [item_nuevo]
+        self._db_carritos: List[Carrito] = [Carrito(id=1)]
+        self._db_pedidos: List[Pedido] = []
 
-    carrito_con_items_actualizados = carrito.model_copy(update={'items': nueva_lista_items})
-    nuevo_total = fn_recalcular_total(carrito_con_items_actualizados, lista_productos)
-    return carrito_con_items_actualizados.model_copy(update={'total': nuevo_total})
+    # --- MÉTODOS PÚBLICOS ---
 
-def fn_actualizar_carrito_en_db(lista_carritos: List[Carrito], carrito_actualizado: Carrito) -> List[Carrito]:
-    return [
-        carrito_actualizado if c.id == carrito_actualizado.id else c
-        for c in lista_carritos
-    ]
+    def obtener_productos(self) -> List[Producto]:
+        """Retorna la lista actual de productos."""
+        return self._db_productos
 
-def fn_limpiar_carrito(carrito: Carrito) -> Carrito:
-    """Devuelve una copia del carrito, pero vacío."""
-    return carrito.model_copy(update={'items': [], 'total': 0.0})
-
-
-
-def fn_convertir_carrito_a_pedido(
-    carrito: Carrito, 
-    lista_productos: List[Producto],
-    nuevo_id_pedido: int
-) -> Pedido:
-    """
-    Convierte los items del carrito en items de pedido,
-    "congelando" el precio. Función pura.
-    """
-    items_pedido: List[ItemPedido] = []
-    for item_c in carrito.items:
-        producto = fn_buscar_producto(lista_productos, item_c.producto_id)
-        if producto:
-            item_p = ItemPedido(
-                producto_id=item_c.producto_id,
-                cantidad=item_c.cantidad,
-                precio_congelado=producto.precio
-            )
-            items_pedido.append(item_p)
-            
-    return Pedido(
-        id=nuevo_id_pedido,
-        items=items_pedido,
-        total_pedido=carrito.total,
-        fecha=datetime.datetime.now().isoformat(),
-        estado="Pendiente"
-    )
-
-def fn_descontar_stock_de_pedido(
-    lista_productos: List[Producto], 
-    carrito: Carrito
-) -> List[Producto]:
-    """
-    Esta es una función funcional clave. Usa 'reduce' para
-    aplicar la función 'fn_actualizar_stock' secuencialmente
-    para cada item en el carrito.
-    
-    Toma la lista de productos inicial y la va "reduciendo"
-    a una nueva lista con el stock actualizado.
-    """
-    
-    def reducer(
-        productos_acumulados: List[Producto], 
-        item_actual: ItemCarrito             
-    ) -> List[Producto]:
+    def agregar_producto(self, producto: Producto) -> Producto:
+        """
+        Agrega un producto nuevo validando que el ID no exista.
+        Manejo de Errores: Lanza excepción si hay duplicados.
+        """
+        # Verificamos si ya existe (Manejo de errores lógico)
+        for p in self._db_productos:
+            if p.id == producto.id:
+                raise ValueError(f"El producto con ID {producto.id} ya existe.")
         
-        return fn_actualizar_stock(
-            productos_acumulados, 
-            item_actual.producto_id, 
-            item_actual.cantidad
+        self._db_productos.append(producto)
+        return producto
+
+    def gestionar_carrito(self, carrito_id: int, item: ItemCarrito) -> Carrito:
+        """
+        Agrega items al carrito y recalcula totales.
+        """
+        try:
+            # 1. Buscar Carrito
+            carrito = next((c for c in self._db_carritos if c.id == carrito_id), None)
+            if not carrito:
+                raise ValueError("Carrito no encontrado.")
+
+            # 2. Buscar Producto y Validar Stock
+            producto = next((p for p in self._db_productos if p.id == item.producto_id), None)
+            if not producto:
+                raise ValueError("Producto no encontrado.")
+            
+            if producto.stock < item.cantidad:
+                raise ValueError(f"Stock insuficiente para {producto.nombre}.")
+
+            # 3. Actualizar lógica del carrito (Lógica de negocio)
+            # Buscamos si el item ya está en el carrito para sumar cantidad
+            item_existente = False
+            nuevos_items = []
+            for i in carrito.items:
+                if i.producto_id == item.producto_id:
+                    nuevos_items.append(ItemCarrito(producto_id=i.producto_id, cantidad=i.cantidad + item.cantidad))
+                    item_existente = True
+                else:
+                    nuevos_items.append(i)
+            
+            if not item_existente:
+                nuevos_items.append(item)
+
+            carrito.items = nuevos_items
+            
+            # Recalcular Total
+            total = 0.0
+            for i in carrito.items:
+                prod = next(p for p in self._db_productos if p.id == i.producto_id)
+                total += prod.precio * i.cantidad
+            
+            carrito.total = round(total, 2)
+            return carrito
+
+        except Exception as e:
+            # Re-lanzamos el error para que la API lo capture
+            print(f"Error en gestionar_carrito: {str(e)}") # Log interno
+            raise e
+
+    def realizar_checkout(self, carrito_id: int) -> Pedido:
+        """
+        Procesa el pedido, descuenta stock y limpia el carrito.
+        Cumple con la lógica compleja y manejo de estado.
+        """
+        # 1. Validaciones
+        carrito = next((c for c in self._db_carritos if c.id == carrito_id), None)
+        if not carrito:
+            raise ValueError("Carrito no encontrado.")
+        if not carrito.items:
+            raise ValueError("El carrito está vacío.")
+
+        # 2. Descontar Stock (Operación Crítica)
+        # Usamos una lista temporal para asegurar atomicidad (o todo o nada)
+        nuevos_productos = self._db_productos.copy()
+        
+        for item in carrito.items:
+            for idx, prod in enumerate(nuevos_productos):
+                if prod.id == item.producto_id:
+                    # Creamos una copia del producto con el stock restado
+                    nuevo_stock = prod.stock - item.cantidad
+                    nuevos_productos[idx] = prod.model_copy(update={'stock': nuevo_stock})
+                    break
+        
+        # 3. Confirmar cambios en la "Base de Datos" (Encapsulada)
+        self._db_productos = nuevos_productos
+
+        # 4. Crear Pedido
+        nuevo_pedido = Pedido(
+            id=len(self._db_pedidos) + 1,
+            items=carrito.items, # Guardamos copia de los items
+            total_pedido=carrito.total,
+            fecha=datetime.datetime.now().isoformat(),
+            estado="Completado"
         )
+        self._db_pedidos.append(nuevo_pedido)
 
-    nueva_lista_productos = functools.reduce(
-        reducer,
-        carrito.items,
-        lista_productos 
-    )
-    
-    return nueva_lista_productos
+        # 5. Limpiar Carrito
+        carrito.items = []
+        carrito.total = 0.0
 
-def fn_agregar_pedido_a_db(lista_pedidos: List[Pedido], pedido: Pedido) -> List[Pedido]:
-    """Devuelve una nueva lista de pedidos con el nuevo pedido añadido."""
-    return lista_pedidos + [pedido]
+        return nuevo_pedido
 
+# ==========================================
+# 4. INSTANCIACIÓN Y API (FastAPI)
+# ==========================================
+
+app = FastAPI(title="Sistema E-commerce POO", description="Implementación con Clases e Interfaces")
+
+# Instanciamos nuestra clase principal.
+# Ahora 'sistema' es un OBJETO que contiene todos los datos y lógica.
+sistema = SistemaEcommerce()
 
 @app.get("/productos", response_model=List[Producto])
-async def obtener_todos_los_productos():
-    return db_productos
+async def api_obtener_productos():
+    return sistema.obtener_productos()
 
-@app.get("/productos/{producto_id}", response_model=Producto)
-async def obtener_producto_por_id(producto_id: int):
-    producto = fn_buscar_producto(db_productos, producto_id)
-    if not producto:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
-    return producto
-
-@app.post("/productos", response_model=Producto, status_code=201)
-async def crear_nuevo_producto(producto: Producto):
-    global db_productos
-    if fn_buscar_producto(db_productos, producto.id):
-        raise HTTPException(status_code=400, detail="ID de producto ya existe")
-    db_productos = fn_agregar_producto(db_productos, producto)
-    return producto
-
-@app.put("/productos/{producto_id}/descontar-stock", response_model=Producto)
-async def descontar_stock_de_producto(producto_id: int, cantidad: int):
-    global db_productos
-    producto = fn_buscar_producto(db_productos, producto_id)
-    if not producto:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
-    if producto.stock < cantidad:
-        raise HTTPException(status_code=400, detail="Stock insuficiente")
-    db_productos = fn_actualizar_stock(db_productos, producto_id, cantidad)
-    return fn_buscar_producto(db_productos, producto_id)
-
-@app.get("/carrito/{carrito_id}", response_model=Carrito)
-async def obtener_carrito(carrito_id: int):
-    carrito = fn_buscar_carrito(db_carritos, carrito_id)
-    if not carrito:
-        raise HTTPException(status_code=404, detail="Carrito no encontrado")
-    return carrito
+@app.post("/productos", response_model=Producto)
+async def api_crear_producto(producto: Producto):
+    try:
+        return sistema.agregar_producto(producto)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/carrito/{carrito_id}/agregar", response_model=Carrito)
-async def agregar_item_al_carrito(carrito_id: int, item: ItemCarrito):
-    global db_carritos
-    carrito_actual = fn_buscar_carrito(db_carritos, carrito_id)
-    if not carrito_actual:
-        raise HTTPException(status_code=404, detail="Carrito no encontrado")
-    producto = fn_buscar_producto(db_productos, item.producto_id)
-    if not producto:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
-    if producto.stock < item.cantidad:
-        raise HTTPException(status_code=400, detail="Stock insuficiente")
-    carrito_actualizado = fn_agregar_item_al_carrito(carrito_actual, item, db_productos)
-    db_carritos = fn_actualizar_carrito_en_db(db_carritos, carrito_actualizado)
-    return carrito_actualizado
-
-
-
-@app.get("/pedidos", response_model=List[Pedido])
-async def obtener_todos_los_pedidos():
-    """Obtiene la lista de todos los pedidos creados."""
-    return db_pedidos
+async def api_agregar_carrito(carrito_id: int, item: ItemCarrito):
+    try:
+        return sistema.gestionar_carrito(carrito_id, item)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/carrito/{carrito_id}/checkout", response_model=Pedido)
-async def procesar_checkout_carrito(carrito_id: int):
-    """
-    Crea un Pedido a partir de un Carrito, descuenta el stock
-    y limpia el carrito. Esta es la operación "impura"
-    que orquesta todas nuestras funciones puras.
-    """
-
-    global db_productos
-    global db_carritos
-    global db_pedidos
-    
-    carrito = fn_buscar_carrito(db_carritos, carrito_id)
-    if not carrito:
-        raise HTTPException(status_code=404, detail="Carrito no encontrado")
-    if not carrito.items:
-        raise HTTPException(status_code=400, detail="El carrito está vacío")
-
-   
-    nueva_lista_productos = fn_descontar_stock_de_pedido(db_productos, carrito)
-    
-    nuevo_id = len(db_pedidos) + 1
-
-    nuevo_pedido = fn_convertir_carrito_a_pedido(carrito, db_productos, nuevo_id)
-    
-    nueva_lista_pedidos = fn_agregar_pedido_a_db(db_pedidos, nuevo_pedido)
-    
-    carrito_limpiado = fn_limpiar_carrito(carrito)
-    
-    nueva_lista_carritos = fn_actualizar_carrito_en_db(db_carritos, carrito_limpiado)
-    
-    db_productos = nueva_lista_productos
-    db_pedidos = nueva_lista_pedidos
-    db_carritos = nueva_lista_carritos
-    
-    return nuevo_pedido
-
+async def api_checkout(carrito_id: int):
+    try:
+        return sistema.realizar_checkout(carrito_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error interno del servidor")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)
