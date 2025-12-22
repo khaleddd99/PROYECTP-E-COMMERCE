@@ -1,0 +1,22 @@
+# Sistema de Gestión de E-commerce (Backend)
+
+**Estudiante:** Khaled Basha
+**Materia:** Programación Orientada a Objetos
+**Fecha:** 21/12/2025
+
+## 🎯 Objetivo del Proyecto
+Desarrollar una API REST robusta para un sistema de comercio electrónico que integre los conocimientos de las 4 unidades de la materia: POO, Servicios Web, Concurrencia y Pruebas de Software.
+
+## 🚀 Principales Funcionalidades
+El sistema cuenta con **8 Servicios Web** documentados en Swagger:
+1. **Gestión de Catálogo:** Listar productos y ver detalles (Encapsulamiento).
+2. **Carrito de Compras:** Agregar ítems y gestionar el estado del carrito.
+3. **Procesamiento de Pedidos:** Checkout con **concurrencia asíncrona** (simulación de pago de 2 seg).
+4. **Historial:** Consulta de pedidos realizados.
+5. **Calidad:** Pruebas unitarias automatizadas (`test_main.py`).
+
+## 🛠️ Tecnologías
+* **Lenguaje:** Python 3.10+
+* **Framework:** FastAPI
+* **Arquitectura:** Programación Orientada a Objetos (Interfaces y Clases).
+* **Testing:** TestClient
